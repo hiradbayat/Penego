@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Scanner</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .table-sm td, .table-sm th {
+            padding: 0.5rem;
+        }
+        .banner-pre {
+            font-size: 0.75rem;
+            max-height: 100px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-4">
+        <!-- Header -->
+        <div class="text-center mb-5">
+            <h1 class="display-4 text-primary mb-2">Hirad Network Scanner</h1>
+            <p class="lead text-muted">Scan your network for open ports and services</p>
+        </div>
+        
+        <!-- Scan Form -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h2 class="h5 mb-0">New Scan</h2>
+            </div>
+            <div class="card-body">
+                <form id="scanForm">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="target" class="form-label">Target</label>
+                            <input type="text" class="form-control" id="target" name="target" 
+                                   placeholder="192.168.1.1 or 192.168.1.0/24" required>
+                            <div class="form-text">Enter a single IP address or CIDR range</div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <label for="ports" class="form-label">Ports</label>
+                            <input type="text" class="form-control" id="ports" name="ports" 
+                                   value="22,80,443" placeholder="22,80,443 or 1-1024" required>
+                            <div class="form-text">Comma-separated ports or ranges</div>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label for="concurrency" class="form-label">Concurrency</label>
+                            <input type="number" class="form-control" id="concurrency" name="concurrency" value="200">
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label for="timeout_ms" class="form-label">Timeout (ms)</label>
+                            <input type="number" class="form-control" id="timeout_ms" name="timeout_ms" value="1000">
+                        </div>
+                        
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="grab_banner" name="grab_banner" checked>
+                                <label class="form-check-label" for="grab_banner">
+                                    Attempt banner grabbing
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                            Start Scan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results" class="card shadow-sm mb-4" style="display: none;">
+            <div class="card-header bg-success text-white">
+                <h2 class="h5 mb-0">Scan Results</h2>
+            </div>
+            <div class="card-body">
+                <div id="resultContent"></div>
+            </div>
+        </div>
+
+        <!-- Previous Scans -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white">
+                <h2 class="h5 mb-0">Previous Scans</h2>
+            </div>
+            <div class="card-body">
+                <button onclick="loadScans()" class="btn btn-outline-secondary mb-3">
+                    Load Previous Scans
+                </button>
+                <div id="scansList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('scanForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const data = {
+                target: formData.get('target'),
+                ports: formData.get('ports'),
+                concurrency: parseInt(formData.get('concurrency')),
+                timeout_ms: parseInt(formData.get('timeout_ms')),
+                grab_banner: formData.get('grab_banner') === 'on'
+            };
+
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Scanning...';
+
+            try {
+                const response = await fetch('/api/scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('results').style.display = 'block';
+                    document.getElementById('resultContent').innerHTML = `
+                        <div class="alert alert-success">
+                            <h4 class="alert-heading">${result.message}</h4>
+                            <p class="mb-0">Scan ID: ${result.scan_id} | Alive Hosts: ${result.alive_hosts} | Dead Hosts: ${result.dead_hosts}</p>
+                        </div>
+                    `;
+                    loadScans(); // Refresh the scans list
+                } else {
+                    document.getElementById('results').style.display = 'block';
+                    document.getElementById('resultContent').innerHTML = `
+                        <div class="alert alert-danger">
+                            <h4 class="alert-heading">Error</h4>
+                            <p class="mb-0">${result.error}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('results').style.display = 'block';
+                document.getElementById('resultContent').innerHTML = `
+                    <div class="alert alert-danger">
+                        <h4 class="alert-heading">Network Error</h4>
+                        <p class="mb-0">${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Start Scan';
+            }
+        });
+
+        async function loadScans() {
+            try {
+                const response = await fetch('/api/scans');
+                const scans = await response.json();
+                
+                const scansList = document.getElementById('scansList');
+                scansList.innerHTML = '';
+                
+                if (scans.length === 0) {
+                    scansList.innerHTML = '<p class="text-muted">No scans found.</p>';
+                    return;
+                }
+                
+                scans.forEach(scan => {
+                    const scanElement = document.createElement('div');
+                    scanElement.className = 'card mb-3';
+                    scanElement.innerHTML = `
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <h5 class="card-title">Scan #${scan.id} - ${scan.target}</h5>
+                                    <p class="card-text text-muted mb-1">
+                                        <small>Scanned on: ${new Date(scan.generated).toLocaleString()}</small>
+                                    </p>
+                                    <p class="card-text mb-0">
+                                        <span class="badge bg-primary">Ports: ${scan.ports_scanned}</span>
+                                        <span class="badge bg-success">Alive: ${scan.true_targets.length}</span>
+                                        <span class="badge bg-danger">Dead: ${scan.false_targets.length}</span>
+                                    </p>
+                                </div>
+                                <button onclick="viewScan(${scan.id})" 
+                                        class="btn btn-outline-primary btn-sm">
+                                    View Details
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    scansList.appendChild(scanElement);
+                });
+            } catch (error) {
+                console.error('Error loading scans:', error);
+                document.getElementById('scansList').innerHTML = `
+                    <div class="alert alert-danger">
+                        Failed to load scans: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        async function viewScan(scanId) {
+            try {
+                const response = await fetch(`/api/scans/${scanId}`);
+                const scan = await response.json();
+                
+                document.getElementById('results').style.display = 'block';
+                let content = `
+                    <div class="mb-4">
+                        <h3>Scan Details #${scan.id}</h3>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <strong>Target:</strong> ${scan.target}
+                            </div>
+                            <div class="col-md-4">
+                                <strong>Ports:</strong> ${scan.ports_scanned}
+                            </div>
+                            <div class="col-md-4">
+                                <strong>Scanned:</strong> ${new Date(scan.generated).toLocaleString()}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                if (scan.true_targets.length > 0) {
+                    content += `<h4 class="mb-3">Alive Hosts (${scan.true_targets.length})</h4>`;
+                    scan.true_targets.forEach(host => {
+                        content += `
+                            <div class="card mb-3 border-success">
+                                <div class="card-header bg-success text-white">
+                                    <h5 class="mb-0">${host.ip}</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-bordered">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Port</th>
+                                                    <th>Service</th>
+                                                    <th>Banner</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                        `;
+                        host.open_ports.forEach(port => {
+                            content += `
+                                <tr>
+                                    <td><span class="badge bg-primary">${port.port}</span></td>
+                                    <td>${port.service || 'N/A'}</td>
+                                    <td><pre class="banner-pre mb-0">${port.banner || 'N/A'}</pre></td>
+                                </tr>
+                            `;
+                        });
+                        content += `</tbody></table></div></div></div>`;
+                    });
+                } else {
+                    content += `<div class="alert alert-info">No alive hosts found in this scan.</div>`;
+                }
+                
+                if (scan.false_targets.length > 0) {
+                    content += `<h4 class="mb-3">Dead Hosts (${scan.false_targets.length})</h4>`;
+                    content += `<ul class="list-group">`;
+                    scan.false_targets.forEach(host => {
+                        content += `<li class="list-group-item">${host.ip}</li>`;
+                    });
+                    content += `</ul>`;
+                }
+                
+                document.getElementById('resultContent').innerHTML = content;
+            } catch (error) {
+                console.error('Error loading scan details:', error);
+                document.getElementById('resultContent').innerHTML = `
+                    <div class="alert alert-danger">
+                        Failed to load scan details: ${error.message}
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

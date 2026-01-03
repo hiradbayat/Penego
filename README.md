@@ -18,4 +18,4 @@ Penego is a comprehensive network penetration testing framework designed for sec
 ```bash
 git clone https://github.com/yourusername/penego.git
 cd penego
-python3 penego.py --help
+go run main.go

@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"net"
 	"net/http"
+	"os/exec"
 	"penego/models"
 	"sort"
 	"strconv"
@@ -21,6 +22,12 @@ type ScanRequest struct {
 	Concurrency int    `json:"concurrency"`
 	TimeoutMs   int    `json:"timeout_ms"`
 	GrabBanner  bool   `json:"grab_banner"`
+}
+
+type HostDiscoveryRequest struct {
+	Target      string `json:"target" binding:"required"`
+	Concurrency int    `json:"concurrency"`
+	TimeoutMs   int    `json:"timeout_ms"`
 }
 
 type ScanHandler struct {
@@ -166,6 +173,103 @@ func (h *ScanHandler) ScanHost(ip string, ports []int, timeout time.Duration, co
 	return host
 }
 
+func isHostAlive(ip string, timeout time.Duration) bool {
+	timeoutSec := int(timeout.Seconds())
+	if timeoutSec < 1 {
+		timeoutSec = 1
+	}
+	cmd := exec.Command("ping", "-c", "1", "-W", strconv.Itoa(timeoutSec), ip)
+	err := cmd.Run()
+	return err == nil
+}
+
+func (h *ScanHandler) HostDiscovery(c *gin.Context) {
+	var req HostDiscoveryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set defaults
+	if req.Concurrency == 0 {
+		req.Concurrency = 200
+	}
+	if req.TimeoutMs == 0 {
+		req.TimeoutMs = 1000
+	}
+
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+
+	var targets []string
+	if strings.Contains(req.Target, "/") {
+		// CIDR
+		ips, err := h.HostsFromCIDR(req.Target)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid CIDR: " + err.Error()})
+			return
+		}
+		targets = append(targets, ips...)
+	} else {
+		// Single IP
+		targets = append(targets, req.Target)
+	}
+
+	// Create scan report
+	scanReport := models.ScanReport{
+		Generated:    time.Now(),
+		Target:       req.Target,
+		PortsScanned: "Host Discovery",
+		Notes:        "Host discovery scan initiated via web interface",
+	}
+
+	semHosts := make(chan struct{}, req.Concurrency)
+	var wg sync.WaitGroup
+	resLock := sync.Mutex{}
+
+	for _, ip := range targets {
+		wg.Add(1)
+		semHosts <- struct{}{}
+		go func(ip string) {
+			defer wg.Done()
+			defer func() { <-semHosts }()
+
+			alive := isHostAlive(ip, timeout)
+			hostResult := models.HostResult{IP: ip, Alive: alive}
+
+			resLock.Lock()
+			if alive {
+				scanReport.TrueTargets = append(scanReport.TrueTargets, hostResult)
+			} else {
+				scanReport.FalseTargets = append(scanReport.FalseTargets, hostResult)
+			}
+			resLock.Unlock()
+		}(ip)
+	}
+	wg.Wait()
+
+	// Sort results by IP
+	sort.Slice(scanReport.TrueTargets, func(i, j int) bool {
+		return scanReport.TrueTargets[i].IP < scanReport.TrueTargets[j].IP
+	})
+	sort.Slice(scanReport.FalseTargets, func(i, j int) bool {
+		return scanReport.FalseTargets[i].IP < scanReport.FalseTargets[j].IP
+	})
+
+	// Save to database
+	if err := h.DB.Create(&scanReport).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save scan results: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Host discovery completed successfully",
+		"scan_id":     scanReport.ID,
+		"alive_hosts": len(scanReport.TrueTargets),
+		"dead_hosts":  len(scanReport.FalseTargets),
+		"generated":   scanReport.Generated,
+	})
+}
+
 func (h *ScanHandler) ScanNetwork(c *gin.Context) {
 	var req ScanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -282,5 +386,10 @@ func (h *ScanHandler) GetScanByID(c *gin.Context) {
 func (h *ScanHandler) ServeHTML(c *gin.Context) {
 	c.HTML(http.StatusOK, "index.html", gin.H{
 		"title": "Network Scanner",
+	})
+}
+func (h *ScanHandler) ServeHostDiscoveryHTML(c *gin.Context) {
+	c.HTML(http.StatusOK, "host_discovery.html", gin.H{
+		"title": "Host Discovery",
 	})
 }

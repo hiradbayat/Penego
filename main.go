@@ -37,9 +37,12 @@ func main() {
 
 	// Routes
 	router.GET("/", scanHandler.ServeHTML)
+	router.GET("/host-discovery", scanHandler.ServeHostDiscoveryHTML)
+
 	router.POST("/api/scan", scanHandler.ScanNetwork)
 	router.GET("/api/scans", scanHandler.GetScanResults)
 	router.GET("/api/scans/:id", scanHandler.GetScanByID)
+	router.POST("/api/host_discovery", scanHandler.HostDiscovery)
 
 	// Start server
 	log.Println("Server starting on :8080")

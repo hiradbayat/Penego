@@ -9,6 +9,7 @@ type HostResult struct {
 	IP        string     `gorm:"index" json:"ip"`
 	Alive     bool       `json:"alive"`
 	OpenPorts []PortInfo `gorm:"foreignKey:ScanID" json:"open_ports"`
+	OS        string     `json:"os,omitempty"`
 	ScanID    uint       `json:"scan_id"`
 	gorm.Model
 }

@@ -30,6 +30,12 @@ type HostDiscoveryRequest struct {
 	TimeoutMs   int    `json:"timeout_ms"`
 }
 
+type OSFingerprintRequest struct {
+	Target      string `json:"target" binding:"required"`
+	Concurrency int    `json:"concurrency"`
+	TimeoutMs   int    `json:"timeout_ms"`
+}
+
 type ScanHandler struct {
 	DB *gorm.DB
 }
@@ -183,6 +189,21 @@ func isHostAlive(ip string, timeout time.Duration) bool {
 	return err == nil
 }
 
+func getOSFingerprint(ip string) string {
+	cmd := exec.Command("nmap", "-O", ip)
+	output, err := cmd.Output()
+	if err != nil {
+		return "Unknown (error during fingerprinting)"
+	}
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "OS details:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "OS details:"))
+		}
+	}
+	return "Unknown"
+}
+
 func (h *ScanHandler) HostDiscovery(c *gin.Context) {
 	var req HostDiscoveryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -263,6 +284,95 @@ func (h *ScanHandler) HostDiscovery(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "Host discovery completed successfully",
+		"scan_id":     scanReport.ID,
+		"alive_hosts": len(scanReport.TrueTargets),
+		"dead_hosts":  len(scanReport.FalseTargets),
+		"generated":   scanReport.Generated,
+	})
+}
+func (h *ScanHandler) OSFingerprint(c *gin.Context) {
+	var req OSFingerprintRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set defaults
+	if req.Concurrency == 0 {
+		req.Concurrency = 200
+	}
+	if req.TimeoutMs == 0 {
+		req.TimeoutMs = 1000
+	}
+
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+
+	var targets []string
+	if strings.Contains(req.Target, "/") {
+		// CIDR
+		ips, err := h.HostsFromCIDR(req.Target)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid CIDR: " + err.Error()})
+			return
+		}
+		targets = append(targets, ips...)
+	} else {
+		// Single IP
+		targets = append(targets, req.Target)
+	}
+
+	// Create scan report
+	scanReport := models.ScanReport{
+		Generated:    time.Now(),
+		Target:       req.Target,
+		PortsScanned: "OS Fingerprinting",
+		Notes:        "OS fingerprinting scan initiated via web interface",
+	}
+
+	semHosts := make(chan struct{}, req.Concurrency)
+	var wg sync.WaitGroup
+	resLock := sync.Mutex{}
+
+	for _, ip := range targets {
+		wg.Add(1)
+		semHosts <- struct{}{}
+		go func(ip string) {
+			defer wg.Done()
+			defer func() { <-semHosts }()
+
+			alive := isHostAlive(ip, timeout)
+			hostResult := models.HostResult{IP: ip, Alive: alive}
+			if alive {
+				hostResult.OS = getOSFingerprint(ip)
+			}
+
+			resLock.Lock()
+			if alive {
+				scanReport.TrueTargets = append(scanReport.TrueTargets, hostResult)
+			} else {
+				scanReport.FalseTargets = append(scanReport.FalseTargets, hostResult)
+			}
+			resLock.Unlock()
+		}(ip)
+	}
+	wg.Wait()
+
+	// Sort results by IP
+	sort.Slice(scanReport.TrueTargets, func(i, j int) bool {
+		return scanReport.TrueTargets[i].IP < scanReport.TrueTargets[j].IP
+	})
+	sort.Slice(scanReport.FalseTargets, func(i, j int) bool {
+		return scanReport.FalseTargets[i].IP < scanReport.FalseTargets[j].IP
+	})
+
+	// Save to database
+	if err := h.DB.Create(&scanReport).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save scan results: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "OS fingerprinting completed successfully",
 		"scan_id":     scanReport.ID,
 		"alive_hosts": len(scanReport.TrueTargets),
 		"dead_hosts":  len(scanReport.FalseTargets),
@@ -391,5 +501,11 @@ func (h *ScanHandler) ServeHTML(c *gin.Context) {
 func (h *ScanHandler) ServeHostDiscoveryHTML(c *gin.Context) {
 	c.HTML(http.StatusOK, "host_discovery.html", gin.H{
 		"title": "Host Discovery",
+	})
+}
+
+func (h *ScanHandler) ServeOSFingerprintHTML(c *gin.Context) {
+	c.HTML(http.StatusOK, "os_fingerprint.html", gin.H{
+		"title": "OS Fingerprinting",
 	})
 }

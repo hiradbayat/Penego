@@ -1,0 +1,34 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: penego
+      MYSQL_DATABASE: gonet
+    ports:
+      - "3306:3306"
+    volumes:
+      - penego_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ppenego"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    ports:
+      - "8585:8585"
+    environment:
+      DATABASE_DSN: root:penego@tcp(mysql:3306)/gonet?charset=utf8mb4&parseTime=True&loc=Local
+      LISTEN_ADDR: 0.0.0.0:8585
+      ADMIN_PASSWORD: penego
+      SESSION_SECRET: docker-compose-dev-secret
+      AUTH_DISABLED: "false"
+      MAX_HOSTS: 1024
+      MAX_PORTS: 4096
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  penego_mysql:

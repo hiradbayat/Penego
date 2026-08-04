@@ -1,0 +1,12 @@
+.idea/
+.vscode/
+.env
+*.exe
+*.test
+penego
+penego.exe
+main.exe
+*.out
+*.log
+.DS_Store
+Thumbs.db

@@ -1,511 +1,228 @@
 package handlers
 
 import (
-	"bufio"
-	"fmt"
+	"net/http"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"net"
-	"net/http"
-	"os/exec"
+	"penego/config"
+	"penego/middlewares"
 	"penego/models"
-	"sort"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
+	"penego/services"
 )
 
-type ScanRequest struct {
-	Target      string `json:"target" binding:"required"`
-	Ports       string `json:"ports" binding:"required"`
-	Concurrency int    `json:"concurrency"`
-	TimeoutMs   int    `json:"timeout_ms"`
-	GrabBanner  bool   `json:"grab_banner"`
-}
-
-type HostDiscoveryRequest struct {
-	Target      string `json:"target" binding:"required"`
-	Concurrency int    `json:"concurrency"`
-	TimeoutMs   int    `json:"timeout_ms"`
-}
-
-type OSFingerprintRequest struct {
-	Target      string `json:"target" binding:"required"`
-	Concurrency int    `json:"concurrency"`
-	TimeoutMs   int    `json:"timeout_ms"`
-}
-
 type ScanHandler struct {
-	DB *gorm.DB
+	DB     *gorm.DB
+	Jobs   *services.JobManager
+	Config *config.Config
 }
 
-func NewScanHandler(db *gorm.DB) *ScanHandler {
-	return &ScanHandler{DB: db}
+func NewScanHandler(db *gorm.DB, jobs *services.JobManager, cfg *config.Config) *ScanHandler {
+	return &ScanHandler{DB: db, Jobs: jobs, Config: cfg}
 }
 
-// Small fingerprints for non-exploitative checks
-var fingerprints = map[string]string{
-	"OpenSSH":    "SSH server",
-	"Apache":     "Apache HTTP Server",
-	"nginx":      "nginx HTTP Server",
-	"MySQL":      "MySQL service",
-	"PostgreSQL": "PostgreSQL service",
+type scanStartBody struct {
+	Target          string `json:"target"`
+	Ports           string `json:"ports"`
+	Concurrency     int    `json:"concurrency"`
+	HostConcurrency int    `json:"host_concurrency"`
+	PortConcurrency int    `json:"port_concurrency"`
+	TimeoutMs       int    `json:"timeout_ms"`
+	GrabBanner      bool   `json:"grab_banner"`
+	SourceScanID    uint   `json:"source_scan_id"`
 }
 
-func (h *ScanHandler) ParsePorts(s string) ([]int, error) {
-	out := make(map[int]struct{})
-	parts := strings.Split(s, ",")
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if strings.Contains(p, "-") {
-			r := strings.SplitN(p, "-", 2)
-			if len(r) != 2 {
-				return nil, fmt.Errorf("bad range: %s", p)
-			}
-			lo, err := strconv.Atoi(strings.TrimSpace(r[0]))
-			if err != nil {
-				return nil, err
-			}
-			hi, err := strconv.Atoi(strings.TrimSpace(r[1]))
-			if err != nil {
-				return nil, err
-			}
-			if lo > hi {
-				lo, hi = hi, lo
-			}
-			for i := lo; i <= hi; i++ {
-				out[i] = struct{}{}
-			}
-		} else {
-			v, err := strconv.Atoi(p)
-			if err != nil {
-				return nil, err
-			}
-			out[v] = struct{}{}
-		}
-	}
-	ports := make([]int, 0, len(out))
-	for k := range out {
-		ports = append(ports, k)
-	}
-	sort.Ints(ports)
-	return ports, nil
-}
-
-func (h *ScanHandler) HostsFromCIDR(cidr string) ([]string, error) {
-	ip, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, err
-	}
-	var ips []string
-	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); h.incIP(ip) {
-		ips = append(ips, ip.String())
-	}
-	if len(ips) > 2 {
-		return ips[1 : len(ips)-1], nil
-	}
-	return ips, nil
-}
-
-func (h *ScanHandler) incIP(ip net.IP) {
-	for j := len(ip) - 1; j >= 0; j-- {
-		ip[j]++
-		if ip[j] != 0 {
-			break
-		}
-	}
-}
-
-func (h *ScanHandler) ProbeTCP(ip string, port int, timeout time.Duration, grabBanner bool) (models.PortInfo, error) {
-	pi := models.PortInfo{Port: port, Open: false}
-	addr := net.JoinHostPort(ip, strconv.Itoa(port))
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return pi, nil
-	}
-	defer conn.Close()
-	pi.Open = true
-
-	if grabBanner {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		r := bufio.NewReader(conn)
-		b, _ := r.Peek(512)
-		pi.Banner = strings.TrimSpace(string(b))
-
-		for k, v := range fingerprints {
-			if strings.Contains(strings.ToLower(pi.Banner), strings.ToLower(k)) {
-				pi.Service = v
-				break
-			}
-		}
-	}
-	return pi, nil
-}
-
-func (h *ScanHandler) ScanHost(ip string, ports []int, timeout time.Duration, concurrency int, grabBanner bool) models.HostResult {
-	host := models.HostResult{IP: ip, Alive: false}
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, concurrency)
-	resCh := make(chan models.PortInfo, len(ports))
-
-	for _, p := range ports {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(port int) {
-			defer wg.Done()
-			pi, _ := h.ProbeTCP(ip, port, timeout, grabBanner)
-			if pi.Open {
-				resCh <- pi
-			}
-			<-sem
-		}(p)
-	}
-
-	wg.Wait()
-	close(resCh)
-
-	for pi := range resCh {
-		host.OpenPorts = append(host.OpenPorts, pi)
-	}
-
-	if len(host.OpenPorts) > 0 {
-		host.Alive = true
-	}
-
-	return host
-}
-
-func isHostAlive(ip string, timeout time.Duration) bool {
-	timeoutSec := int(timeout.Seconds())
-	if timeoutSec < 1 {
-		timeoutSec = 1
-	}
-	cmd := exec.Command("ping", "-c", "1", "-W", strconv.Itoa(timeoutSec), ip)
-	err := cmd.Run()
-	return err == nil
-}
-
-func getOSFingerprint(ip string) string {
-	cmd := exec.Command("nmap", "-O", ip)
-	output, err := cmd.Output()
-	if err != nil {
-		return "Unknown (error during fingerprinting)"
-	}
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "OS details:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "OS details:"))
-		}
-	}
-	return "Unknown"
-}
-
-func (h *ScanHandler) HostDiscovery(c *gin.Context) {
-	var req HostDiscoveryRequest
+func (h *ScanHandler) startJob(c *gin.Context, scanType string, portsRequired bool) {
+	var req scanStartBody
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Set defaults
-	if req.Concurrency == 0 {
-		req.Concurrency = 200
-	}
-	if req.TimeoutMs == 0 {
-		req.TimeoutMs = 1000
-	}
-
-	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
-
-	var targets []string
-	if strings.Contains(req.Target, "/") {
-		// CIDR
-		ips, err := h.HostsFromCIDR(req.Target)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid CIDR: " + err.Error()})
-			return
-		}
-		targets = append(targets, ips...)
-	} else {
-		// Single IP
-		targets = append(targets, req.Target)
-	}
-
-	// Create scan report
-	scanReport := models.ScanReport{
-		Generated:    time.Now(),
-		Target:       req.Target,
-		PortsScanned: "Host Discovery",
-		Notes:        "Host discovery scan initiated via web interface",
-	}
-
-	semHosts := make(chan struct{}, req.Concurrency)
-	var wg sync.WaitGroup
-	resLock := sync.Mutex{}
-
-	for _, ip := range targets {
-		wg.Add(1)
-		semHosts <- struct{}{}
-		go func(ip string) {
-			defer wg.Done()
-			defer func() { <-semHosts }()
-
-			alive := isHostAlive(ip, timeout)
-			hostResult := models.HostResult{IP: ip, Alive: alive}
-
-			resLock.Lock()
-			if alive {
-				scanReport.TrueTargets = append(scanReport.TrueTargets, hostResult)
-			} else {
-				scanReport.FalseTargets = append(scanReport.FalseTargets, hostResult)
-			}
-			resLock.Unlock()
-		}(ip)
-	}
-	wg.Wait()
-
-	// Sort results by IP
-	sort.Slice(scanReport.TrueTargets, func(i, j int) bool {
-		return scanReport.TrueTargets[i].IP < scanReport.TrueTargets[j].IP
-	})
-	sort.Slice(scanReport.FalseTargets, func(i, j int) bool {
-		return scanReport.FalseTargets[i].IP < scanReport.FalseTargets[j].IP
-	})
-
-	// Save to database
-	if err := h.DB.Create(&scanReport).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save scan results: " + err.Error()})
+	if portsRequired && req.Ports == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ports is required"})
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":     "Host discovery completed successfully",
-		"scan_id":     scanReport.ID,
-		"alive_hosts": len(scanReport.TrueTargets),
-		"dead_hosts":  len(scanReport.FalseTargets),
-		"generated":   scanReport.Generated,
-	})
-}
-func (h *ScanHandler) OSFingerprint(c *gin.Context) {
-	var req OSFingerprintRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if req.SourceScanID > 0 && scanType == models.ScanTypeVulnScan {
+		if req.Target == "" {
+			req.Target = "from-existing-scan"
+		}
+	} else if err := services.ValidateTarget(req.Target); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Set defaults
-	if req.Concurrency == 0 {
-		req.Concurrency = 200
+	hostConc := req.HostConcurrency
+	portConc := req.PortConcurrency
+	if hostConc == 0 {
+		hostConc = req.Concurrency
 	}
-	if req.TimeoutMs == 0 {
-		req.TimeoutMs = 1000
-	}
-
-	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
-
-	var targets []string
-	if strings.Contains(req.Target, "/") {
-		// CIDR
-		ips, err := h.HostsFromCIDR(req.Target)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid CIDR: " + err.Error()})
-			return
-		}
-		targets = append(targets, ips...)
-	} else {
-		// Single IP
-		targets = append(targets, req.Target)
+	if portConc == 0 {
+		portConc = req.Concurrency
 	}
 
-	// Create scan report
-	scanReport := models.ScanReport{
-		Generated:    time.Now(),
-		Target:       req.Target,
-		PortsScanned: "OS Fingerprinting",
-		Notes:        "OS fingerprinting scan initiated via web interface",
-	}
-
-	semHosts := make(chan struct{}, req.Concurrency)
-	var wg sync.WaitGroup
-	resLock := sync.Mutex{}
-
-	for _, ip := range targets {
-		wg.Add(1)
-		semHosts <- struct{}{}
-		go func(ip string) {
-			defer wg.Done()
-			defer func() { <-semHosts }()
-
-			alive := isHostAlive(ip, timeout)
-			hostResult := models.HostResult{IP: ip, Alive: alive}
-			if alive {
-				hostResult.OS = getOSFingerprint(ip)
-			}
-
-			resLock.Lock()
-			if alive {
-				scanReport.TrueTargets = append(scanReport.TrueTargets, hostResult)
-			} else {
-				scanReport.FalseTargets = append(scanReport.FalseTargets, hostResult)
-			}
-			resLock.Unlock()
-		}(ip)
-	}
-	wg.Wait()
-
-	// Sort results by IP
-	sort.Slice(scanReport.TrueTargets, func(i, j int) bool {
-		return scanReport.TrueTargets[i].IP < scanReport.TrueTargets[j].IP
+	report, err := h.Jobs.Start(services.StartRequest{
+		ScanType:        scanType,
+		Target:          req.Target,
+		Ports:           req.Ports,
+		HostConcurrency: hostConc,
+		PortConcurrency: portConc,
+		TimeoutMs:       req.TimeoutMs,
+		GrabBanner:      req.GrabBanner,
+		Notes:           "Scan initiated via web interface",
+		SourceScanID:    req.SourceScanID,
 	})
-	sort.Slice(scanReport.FalseTargets, func(i, j int) bool {
-		return scanReport.FalseTargets[i].IP < scanReport.FalseTargets[j].IP
-	})
-
-	// Save to database
-	if err := h.DB.Create(&scanReport).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save scan results: " + err.Error()})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":     "OS fingerprinting completed successfully",
-		"scan_id":     scanReport.ID,
-		"alive_hosts": len(scanReport.TrueTargets),
-		"dead_hosts":  len(scanReport.FalseTargets),
-		"generated":   scanReport.Generated,
+	services.WriteAudit(h.DB, middlewares.CurrentUser(c), "start_scan", req.Target, scanType, c.ClientIP())
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message":   "Scan started",
+		"scan_id":   report.ID,
+		"status":    report.Status,
+		"scan_type": report.ScanType,
 	})
 }
 
 func (h *ScanHandler) ScanNetwork(c *gin.Context) {
-	var req ScanRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	h.startJob(c, models.ScanTypePortScan, true)
+}
+
+func (h *ScanHandler) HostDiscovery(c *gin.Context) {
+	h.startJob(c, models.ScanTypeHostDiscovery, false)
+}
+
+func (h *ScanHandler) OSFingerprint(c *gin.Context) {
+	h.startJob(c, models.ScanTypeOSFingerprint, false)
+}
+
+func (h *ScanHandler) VulnScan(c *gin.Context) {
+	h.startJob(c, models.ScanTypeVulnScan, false)
+}
+
+func (h *ScanHandler) CancelScan(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.Jobs.Cancel(uint(id)); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	services.WriteAudit(h.DB, middlewares.CurrentUser(c), "cancel_scan", c.Param("id"), "", c.ClientIP())
+	c.JSON(http.StatusOK, gin.H{"message": "cancel requested"})
+}
 
-	// Set defaults
-	if req.Concurrency == 0 {
-		req.Concurrency = 200
+func (h *ScanHandler) GetScanResults(c *gin.Context) {
+	scanType := c.Query("type")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if page < 1 {
+		page = 1
 	}
-	if req.TimeoutMs == 0 {
-		req.TimeoutMs = 1000
+	if limit < 1 || limit > 100 {
+		limit = 20
 	}
 
-	ports, err := h.ParsePorts(req.Ports)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ports: " + err.Error()})
+	q := h.DB.Model(&models.ScanReport{})
+	if scanType != "" {
+		q = q.Where("scan_type = ?", scanType)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
-
-	var targets []string
-	if strings.Contains(req.Target, "/") {
-		// CIDR
-		ips, err := h.HostsFromCIDR(req.Target)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid CIDR: " + err.Error()})
-			return
-		}
-		targets = append(targets, ips...)
-	} else {
-		// Single IP
-		targets = append(targets, req.Target)
-	}
-
-	// Create scan report
-	scanReport := models.ScanReport{
-		Generated:    time.Now(),
-		Target:       req.Target,
-		PortsScanned: req.Ports,
-		Notes:        "Scan initiated via web interface",
-	}
-
-	semHosts := make(chan struct{}, req.Concurrency)
-	var wg sync.WaitGroup
-	resLock := sync.Mutex{}
-
-	for _, ip := range targets {
-		wg.Add(1)
-		semHosts <- struct{}{}
-		go func(ip string) {
-			defer wg.Done()
-			defer func() { <-semHosts }()
-
-			hostResult := h.ScanHost(ip, ports, timeout, req.Concurrency, req.GrabBanner)
-
-			resLock.Lock()
-			if hostResult.Alive {
-				scanReport.TrueTargets = append(scanReport.TrueTargets, hostResult)
-			} else {
-				scanReport.FalseTargets = append(scanReport.FalseTargets, hostResult)
-			}
-			resLock.Unlock()
-		}(ip)
-	}
-	wg.Wait()
-
-	// Sort results by IP
-	sort.Slice(scanReport.TrueTargets, func(i, j int) bool {
-		return scanReport.TrueTargets[i].IP < scanReport.TrueTargets[j].IP
-	})
-	sort.Slice(scanReport.FalseTargets, func(i, j int) bool {
-		return scanReport.FalseTargets[i].IP < scanReport.FalseTargets[j].IP
-	})
-
-	// Save to database
-	if err := h.DB.Create(&scanReport).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save scan results: " + err.Error()})
+	var scans []models.ScanReport
+	offset := (page - 1) * limit
+	if err := q.Preload("Hosts.OpenPorts").Preload("Hosts.VulnFindings").
+		Order("id desc").Offset(offset).Limit(limit).Find(&scans).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "Scan completed successfully",
-		"scan_id":     scanReport.ID,
-		"alive_hosts": len(scanReport.TrueTargets),
-		"dead_hosts":  len(scanReport.FalseTargets),
-		"generated":   scanReport.Generated,
+		"items": models.ToScanReportJSONList(scans),
+		"page":  page,
+		"limit": limit,
+		"total": total,
 	})
-}
-
-func (h *ScanHandler) GetScanResults(c *gin.Context) {
-	var scans []models.ScanReport
-	if err := h.DB.Preload("TrueTargets.OpenPorts").Preload("FalseTargets").Find(&scans).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch scan results: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, scans)
 }
 
 func (h *ScanHandler) GetScanByID(c *gin.Context) {
-	id := c.Param("id")
 	var scan models.ScanReport
-	if err := h.DB.Preload("TrueTargets.OpenPorts").Preload("FalseTargets").First(&scan, id).Error; err != nil {
+	if err := h.DB.Preload("Hosts.OpenPorts").Preload("Hosts.VulnFindings").
+		First(&scan, c.Param("id")).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Scan not found"})
 		return
 	}
-
-	c.JSON(http.StatusOK, scan)
+	c.JSON(http.StatusOK, models.ToScanReportJSON(scan))
 }
 
-func (h *ScanHandler) ServeHTML(c *gin.Context) {
-	c.HTML(http.StatusOK, "index.html", gin.H{
-		"title": "Network Scanner",
-	})
-}
-func (h *ScanHandler) ServeHostDiscoveryHTML(c *gin.Context) {
-	c.HTML(http.StatusOK, "host_discovery.html", gin.H{
-		"title": "Host Discovery",
-	})
+func (h *ScanHandler) DeleteScan(c *gin.Context) {
+	id := c.Param("id")
+	var scan models.ScanReport
+	if err := h.DB.First(&scan, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Scan not found"})
+		return
+	}
+	var hosts []models.HostResult
+	_ = h.DB.Where("scan_id = ?", scan.ID).Find(&hosts).Error
+	for _, host := range hosts {
+		_ = h.DB.Where("host_result_id = ?", host.ID).Delete(&models.PortInfo{}).Error
+		_ = h.DB.Where("host_result_id = ?", host.ID).Delete(&models.VulnFinding{}).Error
+	}
+	_ = h.DB.Where("scan_id = ?", scan.ID).Delete(&models.HostResult{}).Error
+	if err := h.DB.Delete(&scan).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	services.WriteAudit(h.DB, middlewares.CurrentUser(c), "delete_scan", id, "", c.ClientIP())
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
-func (h *ScanHandler) ServeOSFingerprintHTML(c *gin.Context) {
-	c.HTML(http.StatusOK, "os_fingerprint.html", gin.H{
-		"title": "OS Fingerprinting",
-	})
+func (h *ScanHandler) ExportScanJSON(c *gin.Context) {
+	var scan models.ScanReport
+	if err := h.DB.Preload("Hosts.OpenPorts").Preload("Hosts.VulnFindings").
+		First(&scan, c.Param("id")).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Scan not found"})
+		return
+	}
+	c.Header("Content-Disposition", "attachment; filename=penego-scan-"+c.Param("id")+".json")
+	c.JSON(http.StatusOK, models.ToScanReportJSON(scan))
+}
+
+func (h *ScanHandler) ExportScanHTML(c *gin.Context) {
+	var scan models.ScanReport
+	if err := h.DB.Preload("Hosts.OpenPorts").Preload("Hosts.VulnFindings").
+		First(&scan, c.Param("id")).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Scan not found"})
+		return
+	}
+	html, err := services.RenderHTMLReport(scan)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Disposition", "attachment; filename="+services.ReportFilename(scan))
+	c.Data(http.StatusOK, "text/html; charset=utf-8", html)
+}
+
+func (h *ScanHandler) NetworkMap(c *gin.Context) {
+	var scans []models.ScanReport
+	q := h.DB.Preload("Hosts.OpenPorts").Where("status = ?", models.StatusDone)
+	if t := c.Query("type"); t != "" {
+		q = q.Where("scan_type = ?", t)
+	}
+	if err := q.Order("id desc").Limit(50).Find(&scans).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, services.BuildNetworkMap(scans))
 }

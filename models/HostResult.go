@@ -1,15 +1,13 @@
 package models
 
-import (
-	"gorm.io/gorm"
-)
+import "gorm.io/gorm"
 
 type HostResult struct {
-	ID        uint       `gorm:"primaryKey" json:"id"`
-	IP        string     `gorm:"index" json:"ip"`
-	Alive     bool       `json:"alive"`
-	OpenPorts []PortInfo `gorm:"foreignKey:ScanID" json:"open_ports"`
-	OS        string     `json:"os,omitempty"`
-	ScanID    uint       `json:"scan_id"`
 	gorm.Model
+	IP           string        `gorm:"index" json:"ip"`
+	Alive        bool          `json:"alive"`
+	OS           string        `json:"os,omitempty"`
+	ScanID       uint          `gorm:"index" json:"scan_id"`
+	OpenPorts    []PortInfo    `gorm:"foreignKey:HostResultID" json:"open_ports"`
+	VulnFindings []VulnFinding `gorm:"foreignKey:HostResultID" json:"vuln_findings,omitempty"`
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -119,18 +120,30 @@ func (h *ScanHandler) CancelScan(c *gin.Context) {
 
 func (h *ScanHandler) GetScanResults(c *gin.Context) {
 	scanType := c.Query("type")
+	status := c.Query("status")
+	search := strings.TrimSpace(c.Query("q"))
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	if page < 1 {
 		page = 1
 	}
 	if limit < 1 || limit > 100 {
-		limit = 20
+		limit = 10
 	}
 
 	q := h.DB.Model(&models.ScanReport{})
 	if scanType != "" {
 		q = q.Where("scan_type = ?", scanType)
+	}
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where(
+			"CAST(id AS CHAR) LIKE ? OR target LIKE ? OR ports_scanned LIKE ? OR notes LIKE ? OR scan_type LIKE ?",
+			like, like, like, like, like,
+		)
 	}
 
 	var total int64
@@ -148,10 +161,13 @@ func (h *ScanHandler) GetScanResults(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"items": models.ToScanReportJSONList(scans),
-		"page":  page,
-		"limit": limit,
-		"total": total,
+		"items":  models.ToScanReportJSONList(scans),
+		"page":   page,
+		"limit":  limit,
+		"total":  total,
+		"q":      search,
+		"status": status,
+		"type":   scanType,
 	})
 }
 

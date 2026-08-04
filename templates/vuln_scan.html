@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.title}} — Penego</title>
     <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <link href="/assets/app.css" rel="stylesheet">
 </head>
 <body class="bg-light">
 {{template "nav" .}}
 <div class="container py-4">
-    <div class="text-center mb-5">
-        <h1 class="display-4 text-primary mb-2">Vulnerability Scanning</h1>
+    <div class="text-center mb-4">
+        <h1 class="display-5 text-primary mb-2">Vulnerability Scanning</h1>
         <p class="lead text-muted">Non-exploitative banner/version checks against known advisory patterns</p>
     </div>
     <div class="card shadow-sm mb-4">
@@ -49,13 +50,7 @@
         <div class="card-header bg-success text-white"><h2 class="h5 mb-0">Results</h2></div>
         <div class="card-body"><div id="resultContent"></div></div>
     </div>
-    <div class="card shadow-sm">
-        <div class="card-header bg-secondary text-white"><h2 class="h5 mb-0">Previous Vuln Scans</h2></div>
-        <div class="card-body">
-            <button type="button" class="btn btn-outline-secondary mb-3" id="loadScansBtn">Load Previous Scans</button>
-            <div id="scansList"></div>
-        </div>
-    </div>
+    {{template "history" .}}
 </div>
 <script src="/assets/bootstrap.bundle.js"></script>
 <script src="/assets/app.js"></script>
@@ -70,9 +65,7 @@ document.getElementById('vulnForm').addEventListener('submit', (e) => {
   if (!fd.get('target')) e.target.target.value = '127.0.0.1';
   Penego.submitScan(e.target, '/api/vuln_scan', 'vuln_scan');
 });
-document.getElementById('loadScansBtn').addEventListener('click', () => {
-  Penego.loadScans(document.getElementById('scansList'), 'vuln_scan');
-});
+Penego.initHistory('vuln_scan');
 </script>
 </body>
 </html>

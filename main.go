@@ -1,54 +1,73 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
+	"embed"
+	"html/template"
+	"io/fs"
 	"log"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"penego/bootstrap"
+	"penego/config"
 	"penego/handlers"
-	"penego/models"
+	"penego/routes"
+	"penego/services"
 )
 
+//go:embed templates/*
+var templatesFS embed.FS
+
+//go:embed assets/*
+var assetsFS embed.FS
+
 func main() {
-	// MySQL connection - update with your credentials
-	dsn := "root:Hirad1375@tcp(127.0.0.1:3306)/gonet?charset=utf8mb4&parseTime=True&loc=Local"
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		log.Fatal(err)
 	}
 
-	// Auto migrate tables
-	err = db.AutoMigrate(&models.ScanReport{}, &models.HostResult{}, &models.PortInfo{})
+	bootstrap.CheckDependencies()
+
+	db, err := bootstrap.ConnectDB(cfg.DatabaseDSN)
 	if err != nil {
+		log.Fatal(err)
+	}
+	if err := bootstrap.AutoMigrate(db); err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
-	// Initialize handler
-	scanHandler := handlers.NewScanHandler(db)
+	jobs := services.NewJobManager(db, services.JobConfig{
+		MaxHosts:        cfg.MaxHosts,
+		MaxPorts:        cfg.MaxPorts,
+		DefaultHostConc: cfg.DefaultHostConc,
+		DefaultPortConc: cfg.DefaultPortConc,
+	})
 
-	// Setup Gin router
+	scanHandler := handlers.NewScanHandler(db, jobs, cfg)
+	pageHandler := handlers.NewPageHandler(cfg)
+	authHandler := handlers.NewAuthHandler(cfg)
+
 	router := gin.Default()
 
-	// Serve static files (CSS, JS, images)
-	router.Static("/assets", "./assets")
+	assetsSub, err := fs.Sub(assetsFS, "assets")
+	if err != nil {
+		log.Fatal("Failed to create assets sub filesystem:", err)
+	}
 
-	// Set up templates
-	router.LoadHTMLGlob("templates/*")
+	tmpl := template.Must(template.ParseFS(templatesFS, "templates/*.html"))
+	router.SetHTMLTemplate(tmpl)
 
-	// Routes
-	router.GET("/", scanHandler.ServeHTML)
-	router.GET("/host-discovery", scanHandler.ServeHostDiscoveryHTML)
-	router.GET("/os-fingerprinting", scanHandler.ServeOSFingerprintHTML)
+	routes.Register(router, routes.Deps{
+		Config: cfg,
+		Scan:   scanHandler,
+		Pages:  pageHandler,
+		Auth:   authHandler,
+		Assets: http.FS(assetsSub),
+	})
 
-	router.POST("/api/scan", scanHandler.ScanNetwork)
-	router.GET("/api/scans", scanHandler.GetScanResults)
-	router.GET("/api/scans/:id", scanHandler.GetScanByID)
-	router.POST("/api/host_discovery", scanHandler.HostDiscovery)
-	router.POST("/api/os_fingerprint", scanHandler.OSFingerprint)
-
-	// Start server
-	log.Println("Server starting on :8080")
-	if err := router.Run(":8585"); err != nil {
+	log.Println("Server starting on", cfg.ListenAddr)
+	if err := router.Run(cfg.ListenAddr); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }

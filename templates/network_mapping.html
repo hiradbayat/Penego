@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}} — Penego</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <style>
+        #mapCanvas { width: 100%; height: 520px; background: #0f172a; border-radius: .5rem; }
+        .legend { color: #334155; font-size: .9rem; }
+    </style>
+</head>
+<body class="bg-light">
+{{template "nav" .}}
+<div class="container py-4">
+    <div class="text-center mb-4">
+        <h1 class="display-4 text-primary mb-2">Network Mapping</h1>
+        <p class="lead text-muted">Graph of hosts from recent completed scans (subnet + shared ports)</p>
+    </div>
+    <div class="mb-3 d-flex gap-2">
+        <button type="button" class="btn btn-primary" id="refreshMap">Refresh Map</button>
+        <span class="legend align-self-center" id="mapStats"></span>
+    </div>
+    <canvas id="mapCanvas" width="1000" height="520"></canvas>
+    <div class="card shadow-sm mt-4">
+        <div class="card-header">Nodes</div>
+        <div class="card-body"><div id="nodeList"></div></div>
+    </div>
+</div>
+<script src="/assets/bootstrap.bundle.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+async function drawMap() {
+  const data = await Penego.api('/api/network_map');
+  const canvas = document.getElementById('mapCanvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, w, h);
+
+  const nodes = data.nodes || [];
+  const edges = data.edges || [];
+  document.getElementById('mapStats').textContent = nodes.length + ' nodes, ' + edges.length + ' edges';
+
+  const positions = {};
+  nodes.forEach((n, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1);
+    const radius = Math.min(w, h) * 0.38;
+    positions[n.id] = {
+      x: w / 2 + radius * Math.cos(angle),
+      y: h / 2 + radius * Math.sin(angle),
+      n,
+    };
+  });
+
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 1;
+  edges.forEach((e) => {
+    const a = positions[e.source], b = positions[e.target];
+    if (!a || !b) return;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  });
+
+  nodes.forEach((n) => {
+    const p = positions[n.id];
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 10, 0, 2 * Math.PI);
+    ctx.fillStyle = n.alive ? '#22c55e' : '#ef4444';
+    ctx.fill();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(n.label, p.x + 12, p.y + 4);
+  });
+
+  const list = document.getElementById('nodeList');
+  Penego.el && (list.textContent = '');
+  while (list.firstChild) list.removeChild(list.firstChild);
+  nodes.forEach((n) => {
+    const row = document.createElement('div');
+    row.className = 'mb-1';
+    row.textContent = n.id + (n.os ? ' [' + n.os + ']' : '') + ' ports: ' + (n.ports || []).join(',');
+    list.appendChild(row);
+  });
+}
+document.getElementById('refreshMap').addEventListener('click', () => drawMap().catch(e => alert(e.message)));
+drawMap().catch(() => {});
+</script>
+</body>
+</html>

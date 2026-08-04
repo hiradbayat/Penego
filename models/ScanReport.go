@@ -6,13 +6,50 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	ScanTypePortScan      = "port_scan"
+	ScanTypeHostDiscovery = "host_discovery"
+	ScanTypeOSFingerprint = "os_fingerprint"
+	ScanTypeVulnScan      = "vuln_scan"
+
+	StatusPending   = "pending"
+	StatusRunning   = "running"
+	StatusDone      = "done"
+	StatusFailed    = "failed"
+	StatusCancelled = "cancelled"
+)
+
 type ScanReport struct {
-	ID           uint         `gorm:"primaryKey" json:"id"`
+	gorm.Model
 	Generated    time.Time    `json:"generated"`
-	TrueTargets  []HostResult `gorm:"foreignKey:ScanID" json:"true_targets"`
-	FalseTargets []HostResult `gorm:"foreignKey:ScanID" json:"false_targets"`
-	Target       string       `json:"target"` // Original target (IP or CIDR)
+	ScanType     string       `gorm:"index;size:64" json:"scan_type"`
+	Status       string       `gorm:"index;size:32" json:"status"`
+	ErrorMessage string       `json:"error_message,omitempty"`
+	Target       string       `json:"target"`
 	PortsScanned string       `json:"ports_scanned"`
 	Notes        string       `json:"notes,omitempty"`
-	gorm.Model
+	Progress     int          `json:"progress"`
+	Hosts        []HostResult `gorm:"foreignKey:ScanID" json:"hosts"`
+}
+
+// TrueTargets filters alive hosts for API compatibility.
+func (s ScanReport) TrueTargets() []HostResult {
+	out := make([]HostResult, 0)
+	for _, h := range s.Hosts {
+		if h.Alive {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// FalseTargets filters non-alive hosts for API compatibility.
+func (s ScanReport) FalseTargets() []HostResult {
+	out := make([]HostResult, 0)
+	for _, h := range s.Hosts {
+		if !h.Alive {
+			out = append(out, h)
+		}
+	}
+	return out
 }

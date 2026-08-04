@@ -75,30 +75,32 @@ func NewPageHandler(cfg *config.Config) *PageHandler {
 	return &PageHandler{Config: cfg}
 }
 
-func (h *PageHandler) pageData(active, title string) gin.H {
+func (h *PageHandler) pageData(active, title, scanType, historyTitle string) gin.H {
 	return gin.H{
 		"title":         title,
 		"active":        active,
 		"auth_disabled": h.Config.AuthDisabled,
+		"scan_type":     scanType,
+		"history_title": historyTitle,
 	}
 }
 
 func (h *PageHandler) PortScan(c *gin.Context) {
-	c.HTML(http.StatusOK, "index.html", h.pageData("port", "Port Scanner"))
+	c.HTML(http.StatusOK, "index.html", h.pageData("port", "Port Scanner", "port_scan", "Previous Scans"))
 }
 
 func (h *PageHandler) HostDiscovery(c *gin.Context) {
-	c.HTML(http.StatusOK, "host_discovery.html", h.pageData("discovery", "Host Discovery"))
+	c.HTML(http.StatusOK, "host_discovery.html", h.pageData("discovery", "Host Discovery", "host_discovery", "Previous Discoveries"))
 }
 
 func (h *PageHandler) OSFingerprint(c *gin.Context) {
-	c.HTML(http.StatusOK, "os_fingerprint.html", h.pageData("os", "OS Fingerprinting"))
+	c.HTML(http.StatusOK, "os_fingerprint.html", h.pageData("os", "OS Fingerprinting", "os_fingerprint", "Previous Fingerprints"))
 }
 
 func (h *PageHandler) VulnScan(c *gin.Context) {
-	c.HTML(http.StatusOK, "vuln_scan.html", h.pageData("vuln", "Vulnerability Scanning"))
+	c.HTML(http.StatusOK, "vuln_scan.html", h.pageData("vuln", "Vulnerability Scanning", "vuln_scan", "Previous Vuln Scans"))
 }
 
 func (h *PageHandler) NetworkMapping(c *gin.Context) {
-	c.HTML(http.StatusOK, "network_mapping.html", h.pageData("map", "Network Mapping"))
+	c.HTML(http.StatusOK, "network_mapping.html", h.pageData("map", "Network Mapping", "", ""))
 }

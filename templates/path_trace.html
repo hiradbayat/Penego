@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}} — Penego</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <link href="/assets/app.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+{{template "nav" .}}
+<div class="container py-4">
+    <h1 class="display-6 text-primary">Path / Traceroute</h1>
+    <p class="text-muted">Network path toward targets (tracert/traceroute)</p>
+    <div class="card shadow-sm mb-4"><div class="card-body">
+        <form id="pathForm">
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Target</label><input class="form-control" name="target" required></div>
+                <div class="col-md-3"><label class="form-label">Engagement ID</label><input class="form-control" name="engagement_id" id="engagement_id" type="number"></div>
+                <div class="col-md-3"><label class="form-label">Concurrency</label><input class="form-control" name="concurrency" type="number" value="5"></div>
+            </div>
+            <button class="btn btn-primary mt-3 w-100" type="submit">Start Path Trace</button>
+        </form>
+    </div></div>
+    <div id="results" class="card shadow-sm mb-4" style="display:none"><div class="card-header bg-success text-white">Results</div><div class="card-body"><div id="resultContent"></div></div></div>
+    {{template "history" .}}
+</div>
+<script src="/assets/bootstrap.bundle.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+Penego.fillEngagementFromQuery();
+document.getElementById('pathForm').addEventListener('submit', e => {
+  e.preventDefault();
+  Penego.submitScan(e.target, '/api/path_trace', 'path_trace');
+});
+Penego.initHistory('path_trace');
+</script>
+</body>
+</html>

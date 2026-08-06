@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}} — Penego</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <link href="/assets/app.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+{{template "nav" .}}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="display-6 text-primary mb-1">Engagements</h1>
+            <p class="text-muted mb-0">Organize assessments by scope, assets, and findings</p>
+        </div>
+        <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#newEng">New engagement</button>
+    </div>
+
+    <div class="collapse mb-4" id="newEng">
+        <div class="card card-body shadow-sm">
+            <form id="engForm">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Name</label>
+                        <input class="form-control" name="name" required placeholder="Lab-2026-Q3">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Scope (comma-separated IPs/CIDRs)</label>
+                        <input class="form-control" name="scope_cidrs" placeholder="192.168.1.0/24, 10.0.0.5">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" name="description" rows="2"></textarea>
+                    </div>
+                </div>
+                <button class="btn btn-success mt-3" type="submit">Create</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="engList" class="text-muted">Loading…</div>
+</div>
+<script src="/assets/bootstrap.bundle.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+async function loadEngagements() {
+  const box = document.getElementById('engList');
+  try {
+    const data = await Penego.api('/api/engagements');
+    box.innerHTML = '';
+    const items = data.items || [];
+    if (!items.length) {
+      box.textContent = 'No engagements yet. Create one to start an assessment.';
+      return;
+    }
+    items.forEach(e => {
+      const card = document.createElement('div');
+      card.className = 'scan-history-item';
+      const left = document.createElement('div');
+      left.innerHTML = '';
+      const title = document.createElement('strong');
+      title.textContent = '#' + e.id + ' — ' + e.name;
+      const meta = document.createElement('div');
+      meta.className = 'result-meta';
+      meta.textContent = (e.status || '') + ' · scope: ' + (e.scope_cidrs || '(unrestricted)') + ' · ' + (e.description || '');
+      left.appendChild(title);
+      left.appendChild(meta);
+      const a = document.createElement('a');
+      a.className = 'btn btn-sm btn-primary';
+      a.href = '/engagements/' + e.id;
+      a.textContent = 'Open';
+      const row = document.createElement('div');
+      row.className = 'd-flex justify-content-between gap-3 align-items-start flex-wrap';
+      row.appendChild(left);
+      row.appendChild(a);
+      card.appendChild(row);
+      box.appendChild(card);
+    });
+  } catch (err) {
+    box.textContent = err.message;
+  }
+}
+document.getElementById('engForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  await Penego.api('/api/engagements', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name: fd.get('name'),
+      scope_cidrs: fd.get('scope_cidrs'),
+      description: fd.get('description'),
+    }),
+  });
+  e.target.reset();
+  loadEngagements();
+});
+loadEngagements();
+</script>
+</body>
+</html>

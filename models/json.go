@@ -13,6 +13,7 @@ type ScanReportJSON struct {
 	PortsScanned string       `json:"ports_scanned"`
 	Notes        string       `json:"notes,omitempty"`
 	Progress     int          `json:"progress"`
+	EngagementID *uint        `json:"engagement_id,omitempty"`
 	TrueTargets  []HostResult `json:"true_targets"`
 	FalseTargets []HostResult `json:"false_targets"`
 	CreatedAt    time.Time    `json:"created_at,omitempty"`
@@ -30,6 +31,7 @@ func ToScanReportJSON(s ScanReport) ScanReportJSON {
 		PortsScanned: s.PortsScanned,
 		Notes:        s.Notes,
 		Progress:     s.Progress,
+		EngagementID: s.EngagementID,
 		TrueTargets:  s.TrueTargets(),
 		FalseTargets: s.FalseTargets(),
 		CreatedAt:    s.CreatedAt,

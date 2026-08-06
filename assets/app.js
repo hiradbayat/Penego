@@ -515,11 +515,18 @@ window.Penego = (function () {
         port_concurrency: parseInt(fd.get("port_concurrency") || fd.get("concurrency") || "100", 10),
         timeout_ms: parseInt(fd.get("timeout_ms") || "1000", 10),
         grab_banner: fd.get("grab_banner") === "on",
+        auth_service: fd.get("auth_service") || undefined,
+        username: fd.get("username") || undefined,
+        password: fd.get("password") || undefined,
+        auth_port: fd.get("auth_port") ? parseInt(fd.get("auth_port"), 10) : undefined,
       },
       extra || {}
     );
     if (fd.get("source_scan_id")) {
       data.source_scan_id = parseInt(fd.get("source_scan_id"), 10);
+    }
+    if (fd.get("engagement_id")) {
+      data.engagement_id = parseInt(fd.get("engagement_id"), 10);
     }
 
     const submitBtn = form.querySelector('button[type="submit"]');
@@ -579,5 +586,11 @@ window.Penego = (function () {
     renderScanDetail,
     initHistory,
     refreshHistory,
+    fillEngagementFromQuery: function () {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("engagement_id");
+      const input = document.getElementById("engagement_id");
+      if (id && input) input.value = id;
+    },
   };
 })();

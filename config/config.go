@@ -9,32 +9,40 @@ import (
 )
 
 type Config struct {
-	DatabaseDSN     string
-	ListenAddr      string
-	AdminPassword   string
-	SessionSecret   string
-	MaxHosts        int
-	MaxPorts        int
-	DefaultHostConc int
-	DefaultPortConc int
-	RateLimitPerMin int
-	AuthDisabled    bool
+	DatabaseDSN        string
+	ListenAddr         string
+	AdminPassword      string
+	SessionSecret      string
+	MaxHosts           int
+	MaxPorts           int
+	DefaultHostConc    int
+	DefaultPortConc    int
+	RateLimitPerMin    int
+	AuthDisabled       bool
+	AuthCheckEnabled   bool
+	AuthCheckPerMinute int
+	EnforceScope       bool
+	UseDBUsers         bool
 }
 
 func Load() (*Config, error) {
 	_ = loadDotEnv(".env")
 
 	cfg := &Config{
-		DatabaseDSN:     env("DATABASE_DSN", ""),
-		ListenAddr:      env("LISTEN_ADDR", "127.0.0.1:8585"),
-		AdminPassword:   env("ADMIN_PASSWORD", "penego"),
-		SessionSecret:   env("SESSION_SECRET", "change-me-penego-session-secret"),
-		MaxHosts:        envInt("MAX_HOSTS", 1024),
-		MaxPorts:        envInt("MAX_PORTS", 4096),
-		DefaultHostConc: envInt("DEFAULT_HOST_CONCURRENCY", 100),
-		DefaultPortConc: envInt("DEFAULT_PORT_CONCURRENCY", 100),
-		RateLimitPerMin: envInt("RATE_LIMIT_PER_MIN", 60),
-		AuthDisabled:    env("AUTH_DISABLED", "false") == "true",
+		DatabaseDSN:        env("DATABASE_DSN", ""),
+		ListenAddr:         env("LISTEN_ADDR", "127.0.0.1:8585"),
+		AdminPassword:      env("ADMIN_PASSWORD", "penego"),
+		SessionSecret:      env("SESSION_SECRET", "change-me-penego-session-secret"),
+		MaxHosts:           envInt("MAX_HOSTS", 1024),
+		MaxPorts:           envInt("MAX_PORTS", 4096),
+		DefaultHostConc:    envInt("DEFAULT_HOST_CONCURRENCY", 100),
+		DefaultPortConc:    envInt("DEFAULT_PORT_CONCURRENCY", 100),
+		RateLimitPerMin:    envInt("RATE_LIMIT_PER_MIN", 60),
+		AuthDisabled:       env("AUTH_DISABLED", "false") == "true",
+		AuthCheckEnabled:   env("AUTHCHECK_ENABLED", "true") == "true",
+		AuthCheckPerMinute: envInt("AUTHCHECK_PER_MINUTE", 10),
+		EnforceScope:       env("ENFORCE_SCOPE", "true") == "true",
+		UseDBUsers:         env("USE_DB_USERS", "true") == "true",
 	}
 
 	if cfg.DatabaseDSN == "" {

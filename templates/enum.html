@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}} — Penego</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <link href="/assets/app.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+{{template "nav" .}}
+<div class="container py-4">
+    <h1 class="display-6 text-primary">Service Enumeration</h1>
+    <p class="text-muted">HTTP title/Server, TLS cert CN/SANs, reverse DNS, SMB peek (read-only)</p>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form id="enumForm">
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">Target</label><input class="form-control" name="target" required placeholder="IP or CIDR"></div>
+                    <div class="col-md-4"><label class="form-label">Ports</label><input class="form-control" name="ports" value="80,443,445,8080,8443"></div>
+                    <div class="col-md-2"><label class="form-label">Engagement ID</label><input class="form-control" name="engagement_id" id="engagement_id" type="number"></div>
+                    <div class="col-md-2"><label class="form-label">Timeout ms</label><input class="form-control" name="timeout_ms" type="number" value="3000"></div>
+                </div>
+                <button class="btn btn-primary mt-3 w-100" type="submit">Start Enumeration</button>
+            </form>
+        </div>
+    </div>
+    <div id="results" class="card shadow-sm mb-4" style="display:none"><div class="card-header bg-success text-white">Results</div><div class="card-body"><div id="resultContent"></div></div></div>
+    {{template "history" .}}
+</div>
+<script src="/assets/bootstrap.bundle.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+Penego.fillEngagementFromQuery();
+document.getElementById('enumForm').addEventListener('submit', e => {
+  e.preventDefault();
+  Penego.submitScan(e.target, '/api/service_enum', 'service_enum');
+});
+Penego.initHistory('service_enum');
+</script>
+</body>
+</html>

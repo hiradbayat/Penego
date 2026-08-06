@@ -39,6 +39,10 @@
                         <label class="form-label" for="timeout_ms">Timeout (ms)</label>
                         <input type="number" class="form-control" id="timeout_ms" name="timeout_ms" value="1000">
                     </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="engagement_id">Engagement ID</label>
+                        <input type="number" class="form-control" id="engagement_id" name="engagement_id">
+                    </div>
                 </div>
                 <div class="mt-4">
                     <button type="submit" class="btn btn-primary btn-lg w-100">Start Vuln Scan</button>
@@ -55,6 +59,7 @@
 <script src="/assets/bootstrap.bundle.js"></script>
 <script src="/assets/app.js"></script>
 <script>
+Penego.fillEngagementFromQuery();
 document.getElementById('vulnForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);

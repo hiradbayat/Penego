@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}} — Penego</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <link href="/assets/app.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+{{template "nav" .}}
+<div class="container py-4">
+    <h1 class="display-6 text-primary">Authorized Credential Check</h1>
+    <div class="alert alert-warning">Verify <strong>one</strong> username/password against a single host you are authorized to test. Passwords are never written to audit logs. Mass spraying is not supported.</div>
+    <div class="card shadow-sm mb-4"><div class="card-body">
+        <form id="authForm">
+            <div class="row g-3">
+                <div class="col-md-4"><label class="form-label">Target IP</label><input class="form-control" name="target" required></div>
+                <div class="col-md-2"><label class="form-label">Service</label>
+                    <select class="form-select" name="auth_service">
+                        <option value="ssh">SSH</option>
+                        <option value="ftp">FTP</option>
+                        <option value="http_basic">HTTP Basic</option>
+                    </select>
+                </div>
+                <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" name="auth_port" type="number" value="22"></div>
+                <div class="col-md-2"><label class="form-label">Engagement ID</label><input class="form-control" name="engagement_id" id="engagement_id" type="number" required></div>
+                <div class="col-md-3"><label class="form-label">Username</label><input class="form-control" name="username" required autocomplete="username"></div>
+                <div class="col-md-3"><label class="form-label">Password</label><input class="form-control" name="password" type="password" required autocomplete="current-password"></div>
+            </div>
+            <button class="btn btn-warning mt-3 w-100" type="submit">Run single auth check</button>
+        </form>
+    </div></div>
+    <div id="results" class="card shadow-sm mb-4" style="display:none"><div class="card-header bg-success text-white">Results</div><div class="card-body"><div id="resultContent"></div></div></div>
+    {{template "history" .}}
+</div>
+<script src="/assets/bootstrap.bundle.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+Penego.fillEngagementFromQuery();
+document.getElementById('authForm').addEventListener('submit', e => {
+  e.preventDefault();
+  Penego.submitScan(e.target, '/api/auth_check', 'auth_check');
+});
+Penego.initHistory('auth_check');
+</script>
+</body>
+</html>

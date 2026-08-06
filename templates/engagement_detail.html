@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Engagement — Penego</title>
+    <link href="/assets/bootstrap.min.css" rel="stylesheet">
+    <link href="/assets/app.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+{{template "nav" .}}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+            <h1 class="h3 text-primary mb-1" id="engTitle">Engagement #{{.engagement_id}}</h1>
+            <p class="text-muted mb-0" id="engMeta"></p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-success btn-sm" id="exportBtn" href="/api/engagements/{{.engagement_id}}/export.html">Export Report</a>
+            <button class="btn btn-outline-warning btn-sm" id="closeBtn">Close engagement</button>
+            <a class="btn btn-outline-secondary btn-sm" href="/assessment-pipeline?engagement_id={{.engagement_id}}">Run pipeline</a>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabAssets">Assets</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabFindings">Findings</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabScans">Scans</button></li>
+    </ul>
+    <div class="tab-content border border-top-0 bg-white p-3 rounded-bottom shadow-sm">
+        <div class="tab-pane fade show active" id="tabAssets"><div id="assetsBox">Loading…</div></div>
+        <div class="tab-pane fade" id="tabFindings">
+            <div class="row g-2 mb-3">
+                <div class="col-md-4"><input type="search" class="form-control" id="findQ" placeholder="Search findings…"></div>
+                <div class="col-md-3">
+                    <select class="form-select" id="findSev">
+                        <option value="">All severities</option>
+                        <option>critical</option><option>high</option><option>medium</option><option>low</option><option>info</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="findStatus">
+                        <option value="">All statuses</option>
+                        <option value="open">open</option>
+                        <option value="fixed">fixed</option>
+                        <option value="accepted">accepted</option>
+                    </select>
+                </div>
+                <div class="col-md-2"><button class="btn btn-primary w-100" id="findFilter">Filter</button></div>
+            </div>
+            <div id="findingsBox"></div>
+        </div>
+        <div class="tab-pane fade" id="tabScans"><div id="scansBox"></div></div>
+    </div>
+</div>
+<script src="/assets/bootstrap.bundle.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+const ENG_ID = {{.engagement_id}};
+
+async function loadDetail() {
+  const data = await Penego.api('/api/engagements/' + ENG_ID);
+  const e = data.engagement;
+  document.getElementById('engTitle').textContent = '#' + e.id + ' — ' + e.name;
+  document.getElementById('engMeta').textContent = e.status + ' · scope: ' + (e.scope_cidrs || '(unrestricted)');
+
+  const ab = document.getElementById('assetsBox');
+  ab.innerHTML = '';
+  (data.assets || []).forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'mb-2 border-bottom pb-2';
+    row.textContent = a.ip + (a.hostname ? ' (' + a.hostname + ')' : '') +
+      (a.os ? ' · ' + a.os : '') +
+      (a.open_ports ? ' · ports ' + a.open_ports : '') +
+      (a.tls_cn ? ' · TLS ' + a.tls_cn : '') +
+      (a.http_title ? ' · ' + a.http_title : '');
+    ab.appendChild(row);
+  });
+  if (!(data.assets || []).length) ab.textContent = 'No assets yet. Run discovery or a pipeline.';
+
+  const sb = document.getElementById('scansBox');
+  sb.innerHTML = '';
+  (data.scans || []).forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'mb-2';
+    row.textContent = '#' + s.id + ' ' + s.scan_type + ' · ' + s.target + ' · ' + s.status;
+    sb.appendChild(row);
+  });
+  if (!(data.scans || []).length) sb.textContent = 'No scans linked yet.';
+}
+
+async function loadFindings() {
+  const q = new URLSearchParams();
+  if (document.getElementById('findQ').value) q.set('q', document.getElementById('findQ').value);
+  if (document.getElementById('findSev').value) q.set('severity', document.getElementById('findSev').value);
+  if (document.getElementById('findStatus').value) q.set('status', document.getElementById('findStatus').value);
+  const data = await Penego.api('/api/engagements/' + ENG_ID + '/findings?' + q.toString());
+  const box = document.getElementById('findingsBox');
+  box.innerHTML = '';
+  (data.items || []).forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'scan-history-item';
+    const t = document.createElement('div');
+    t.innerHTML = '';
+    const strong = document.createElement('strong');
+    strong.textContent = f.title;
+    const meta = document.createElement('div');
+    meta.className = 'result-meta';
+    meta.textContent = f.severity + ' · ' + f.status + (f.cve ? ' · ' + f.cve : '') + (f.port ? ' · port ' + f.port : '');
+    const rem = document.createElement('div');
+    rem.className = 'small text-muted';
+    rem.textContent = f.remediation || f.description || '';
+    t.appendChild(strong); t.appendChild(meta); t.appendChild(rem);
+    const actions = document.createElement('div');
+    actions.className = 'd-flex gap-1';
+    ['open','fixed','accepted'].forEach(st => {
+      const b = document.createElement('button');
+      b.className = 'btn btn-sm btn-outline-secondary';
+      b.textContent = st;
+      b.onclick = async () => {
+        await Penego.api('/api/engagements/' + ENG_ID + '/findings/' + f.id, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({status: st})
+        });
+        loadFindings();
+      };
+      actions.appendChild(b);
+    });
+    const row = document.createElement('div');
+    row.className = 'd-flex justify-content-between gap-2 flex-wrap';
+    row.appendChild(t); row.appendChild(actions);
+    card.appendChild(row);
+    box.appendChild(card);
+  });
+  if (!(data.items || []).length) box.textContent = 'No findings match.';
+}
+
+document.getElementById('findFilter').onclick = loadFindings;
+document.getElementById('closeBtn').onclick = async () => {
+  if (!confirm('Close this engagement?')) return;
+  await Penego.api('/api/engagements/' + ENG_ID + '/close', {method:'POST'});
+  loadDetail();
+};
+loadDetail();
+loadFindings();
+</script>
+</body>
+</html>

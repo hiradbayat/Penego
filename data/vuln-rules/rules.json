@@ -1,0 +1,86 @@
+{
+  "version": "1.0.0",
+  "rules": [
+    {
+      "id": "openssh-banner",
+      "product": "openssh",
+      "banner_regex": "(?i)OpenSSH[_\\s-]?(\\d+)\\.(\\d+)",
+      "severity": "medium",
+      "title": "OpenSSH version disclosed",
+      "description": "SSH banner exposes OpenSSH version; review against current advisories.",
+      "cve": "CVE-2024-6387",
+      "remediation": "Upgrade OpenSSH to a currently supported release and disable unused algorithms."
+    },
+    {
+      "id": "openssh-old-major",
+      "product": "openssh",
+      "banner_regex": "(?i)OpenSSH[_\\s-]?(\\d+)\\.(\\d+)",
+      "max_major": 7,
+      "severity": "high",
+      "title": "Outdated OpenSSH (major < 8)",
+      "description": "OpenSSH major version below 8 may lack modern security fixes.",
+      "cve": "CVE-2018-15473",
+      "remediation": "Upgrade OpenSSH to 8.x or newer."
+    },
+    {
+      "id": "apache-banner",
+      "product": "apache",
+      "banner_regex": "(?i)Apache[/\\s](\\d+)\\.(\\d+)\\.(\\d+)",
+      "severity": "medium",
+      "title": "Apache HTTP Server version disclosed",
+      "description": "Apache version visible in banner or Server header.",
+      "cve": "",
+      "remediation": "Upgrade Apache and suppress version tokens (ServerTokens Prod)."
+    },
+    {
+      "id": "nginx-banner",
+      "product": "nginx",
+      "banner_regex": "(?i)nginx[/\\s](\\d+)\\.(\\d+)\\.(\\d+)",
+      "severity": "low",
+      "title": "nginx version disclosed",
+      "description": "nginx version exposed; confirm patch level.",
+      "cve": "",
+      "remediation": "Upgrade nginx and set server_tokens off."
+    },
+    {
+      "id": "mysql-banner",
+      "product": "mysql",
+      "banner_regex": "(?i)(\\d+\\.\\d+\\.\\d+).*[Mm]y[Ss][Qq][Ll]|[Mm]y[Ss][Qq][Ll].*(\\d+\\.\\d+\\.\\d+)",
+      "severity": "medium",
+      "title": "MySQL version disclosed",
+      "description": "MySQL greeting/banner exposes version information.",
+      "cve": "",
+      "remediation": "Upgrade MySQL/MariaDB and restrict network exposure."
+    },
+    {
+      "id": "openssl-heartbleed-hint",
+      "product": "openssl",
+      "banner_regex": "(?i)OpenSSL/1\\.0\\.1[a-f]?",
+      "severity": "critical",
+      "title": "Potentially Heartbleed-era OpenSSL",
+      "description": "Banner suggests OpenSSL 1.0.1 which was affected by Heartbleed and related issues.",
+      "cve": "CVE-2014-0160",
+      "remediation": "Upgrade OpenSSL immediately; rotate keys/certs if historically exposed."
+    },
+    {
+      "id": "dropbear-ssh",
+      "product": "dropbear",
+      "banner_regex": "(?i)dropbear[_\\s-]?(\\d+\\.\\d+)",
+      "severity": "medium",
+      "title": "Dropbear SSH version disclosed",
+      "description": "Dropbear SSH banner exposes version.",
+      "cve": "",
+      "remediation": "Keep Dropbear updated; prefer key-only auth."
+    },
+    {
+      "id": "ftp-vsftpd",
+      "product": "vsftpd",
+      "banner_regex": "(?i)vsftpd\\s*(\\d+\\.\\d+\\.\\d+)",
+      "severity": "medium",
+      "title": "vsftpd version disclosed",
+      "description": "FTP banner discloses vsftpd version.",
+      "cve": "",
+      "remediation": "Prefer SFTP/SSH; upgrade vsftpd if FTP must remain."
+    }
+  ]
+}

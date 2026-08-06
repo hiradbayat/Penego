@@ -37,16 +37,26 @@ func main() {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
+	if cfg.UseDBUsers {
+		if err := services.EnsureAdminUser(db, "admin", cfg.AdminPassword); err != nil {
+			log.Fatal("Failed to seed admin user:", err)
+		}
+	}
+
 	jobs := services.NewJobManager(db, services.JobConfig{
-		MaxHosts:        cfg.MaxHosts,
-		MaxPorts:        cfg.MaxPorts,
-		DefaultHostConc: cfg.DefaultHostConc,
-		DefaultPortConc: cfg.DefaultPortConc,
+		MaxHosts:           cfg.MaxHosts,
+		MaxPorts:           cfg.MaxPorts,
+		DefaultHostConc:    cfg.DefaultHostConc,
+		DefaultPortConc:    cfg.DefaultPortConc,
+		AuthCheckEnabled:   cfg.AuthCheckEnabled,
+		AuthCheckPerMinute: cfg.AuthCheckPerMinute,
+		EnforceScope:       cfg.EnforceScope,
 	})
 
 	scanHandler := handlers.NewScanHandler(db, jobs, cfg)
 	pageHandler := handlers.NewPageHandler(cfg)
-	authHandler := handlers.NewAuthHandler(cfg)
+	authHandler := handlers.NewAuthHandler(cfg, db)
+	engHandler := handlers.NewEngagementHandler(db)
 
 	router := gin.Default()
 
@@ -59,11 +69,12 @@ func main() {
 	router.SetHTMLTemplate(tmpl)
 
 	routes.Register(router, routes.Deps{
-		Config: cfg,
-		Scan:   scanHandler,
-		Pages:  pageHandler,
-		Auth:   authHandler,
-		Assets: http.FS(assetsSub),
+		Config:     cfg,
+		Scan:       scanHandler,
+		Pages:      pageHandler,
+		Auth:       authHandler,
+		Engagement: engHandler,
+		Assets:     http.FS(assetsSub),
 	})
 
 	log.Println("Server starting on", cfg.ListenAddr)

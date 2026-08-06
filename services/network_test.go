@@ -95,3 +95,46 @@ func TestResolveTargetsMaxHosts(t *testing.T) {
 		t.Fatal("expected max hosts error")
 	}
 }
+
+func TestTargetInScope(t *testing.T) {
+	if !TargetInScope("", "10.0.0.1") {
+		t.Fatal("empty scope should allow all")
+	}
+	if !TargetInScope("10.0.0.0/24", "10.0.0.5") {
+		t.Fatal("expected in scope")
+	}
+	if TargetInScope("10.0.0.0/24", "192.168.1.1") {
+		t.Fatal("expected out of scope")
+	}
+}
+
+func TestLoadVulnRules(t *testing.T) {
+	pack, err := LoadVulnRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pack.Rules) == 0 {
+		t.Fatal("expected embedded rules")
+	}
+}
+
+func TestMatchVulnRulesOpenSSH(t *testing.T) {
+	host := models.HostResult{
+		IP: "1.2.3.4", Alive: true,
+		OpenPorts: []models.PortInfo{{Port: 22, Open: true, Banner: "SSH-2.0-OpenSSH_7.4"}},
+	}
+	f := MatchVulnRules(host)
+	if len(f) == 0 {
+		t.Fatal("expected findings")
+	}
+}
+
+func TestHashPassword(t *testing.T) {
+	h, err := HashPassword("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !CheckPasswordHash(h, "secret") {
+		t.Fatal("hash mismatch")
+	}
+}

@@ -1,28 +1,23 @@
 {{define "nav"}}
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container-fluid">
-        <a class="navbar-brand" href="/"><img src="/assets/logo.png" alt="Penego" width="160"></a>
+        <a class="navbar-brand" href="/engagements"><img src="/assets/logo.png" alt="Penego" width="160"></a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
                 aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav me-auto">
-                <li class="nav-item">
-                    <a class="nav-link{{if eq .active "port"}} active{{end}}" href="/">Port Scanning</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link{{if eq .active "discovery"}} active{{end}}" href="/host-discovery">Host Discovery</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link{{if eq .active "os"}} active{{end}}" href="/os-fingerprinting">OS Fingerprinting</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link{{if eq .active "vuln"}} active{{end}}" href="/vulnerability-scanning">Vulnerability Scanning</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link{{if eq .active "map"}} active{{end}}" href="/network-mapping">Network Mapping</a>
-                </li>
+            <ul class="navbar-nav me-auto flex-wrap">
+                <li class="nav-item"><a class="nav-link{{if eq .active "engagements"}} active{{end}}" href="/engagements">Engagements</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "pipeline"}} active{{end}}" href="/assessment-pipeline">Pipeline</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "port"}} active{{end}}" href="/">Ports</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "discovery"}} active{{end}}" href="/host-discovery">Discovery</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "enum"}} active{{end}}" href="/enumeration">Enum</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "path"}} active{{end}}" href="/path-trace">Path</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "os"}} active{{end}}" href="/os-fingerprinting">OS</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "vuln"}} active{{end}}" href="/vulnerability-scanning">Vulns</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "auth"}} active{{end}}" href="/auth-check">Auth Check</a></li>
+                <li class="nav-item"><a class="nav-link{{if eq .active "map"}} active{{end}}" href="/network-mapping">Map</a></li>
             </ul>
             {{if not .auth_disabled}}
             <a class="btn btn-outline-light btn-sm" href="/logout">Logout</a>

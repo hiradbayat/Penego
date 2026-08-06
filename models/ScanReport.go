@@ -11,6 +11,11 @@ const (
 	ScanTypeHostDiscovery = "host_discovery"
 	ScanTypeOSFingerprint = "os_fingerprint"
 	ScanTypeVulnScan      = "vuln_scan"
+	ScanTypePathTrace     = "path_trace"
+	ScanTypeUDPScan       = "udp_scan"
+	ScanTypeEnum          = "service_enum"
+	ScanTypeAuthCheck     = "auth_check"
+	ScanTypePipeline      = "assessment_pipeline"
 
 	StatusPending   = "pending"
 	StatusRunning   = "running"
@@ -29,6 +34,7 @@ type ScanReport struct {
 	PortsScanned string       `json:"ports_scanned"`
 	Notes        string       `json:"notes,omitempty"`
 	Progress     int          `json:"progress"`
+	EngagementID *uint        `gorm:"index" json:"engagement_id,omitempty"`
 	Hosts        []HostResult `gorm:"foreignKey:ScanID" json:"hosts"`
 }
 

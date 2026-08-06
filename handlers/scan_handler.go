@@ -32,6 +32,11 @@ type scanStartBody struct {
 	TimeoutMs       int    `json:"timeout_ms"`
 	GrabBanner      bool   `json:"grab_banner"`
 	SourceScanID    uint   `json:"source_scan_id"`
+	EngagementID    *uint  `json:"engagement_id"`
+	AuthService     string `json:"auth_service"`
+	AuthUsername    string `json:"username"`
+	AuthPassword    string `json:"password"`
+	AuthPort        int    `json:"auth_port"`
 }
 
 func (h *ScanHandler) startJob(c *gin.Context, scanType string, portsRequired bool) {
@@ -47,6 +52,11 @@ func (h *ScanHandler) startJob(c *gin.Context, scanType string, portsRequired bo
 	if req.SourceScanID > 0 && scanType == models.ScanTypeVulnScan {
 		if req.Target == "" {
 			req.Target = "from-existing-scan"
+		}
+	} else if scanType != models.ScanTypeAuthCheck {
+		if err := services.ValidateTarget(req.Target); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
 	} else if err := services.ValidateTarget(req.Target); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -72,6 +82,11 @@ func (h *ScanHandler) startJob(c *gin.Context, scanType string, portsRequired bo
 		GrabBanner:      req.GrabBanner,
 		Notes:           "Scan initiated via web interface",
 		SourceScanID:    req.SourceScanID,
+		EngagementID:    req.EngagementID,
+		AuthService:     req.AuthService,
+		AuthUsername:    req.AuthUsername,
+		AuthPassword:    req.AuthPassword,
+		AuthPort:        req.AuthPort,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -81,10 +96,11 @@ func (h *ScanHandler) startJob(c *gin.Context, scanType string, portsRequired bo
 	services.WriteAudit(h.DB, middlewares.CurrentUser(c), "start_scan", req.Target, scanType, c.ClientIP())
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"message":   "Scan started",
-		"scan_id":   report.ID,
-		"status":    report.Status,
-		"scan_type": report.ScanType,
+		"message":       "Scan started",
+		"scan_id":       report.ID,
+		"status":        report.Status,
+		"scan_type":     report.ScanType,
+		"engagement_id": report.EngagementID,
 	})
 }
 
@@ -102,6 +118,40 @@ func (h *ScanHandler) OSFingerprint(c *gin.Context) {
 
 func (h *ScanHandler) VulnScan(c *gin.Context) {
 	h.startJob(c, models.ScanTypeVulnScan, false)
+}
+
+func (h *ScanHandler) PathTrace(c *gin.Context) {
+	h.startJob(c, models.ScanTypePathTrace, false)
+}
+
+func (h *ScanHandler) UDPScan(c *gin.Context) {
+	h.startJob(c, models.ScanTypeUDPScan, false)
+}
+
+func (h *ScanHandler) ServiceEnum(c *gin.Context) {
+	h.startJob(c, models.ScanTypeEnum, false)
+}
+
+func (h *ScanHandler) AuthCheck(c *gin.Context) {
+	h.startJob(c, models.ScanTypeAuthCheck, false)
+}
+
+func (h *ScanHandler) AssessmentPipeline(c *gin.Context) {
+	h.startJob(c, models.ScanTypePipeline, false)
+}
+
+func (h *ScanHandler) PurgeDeleted(c *gin.Context) {
+	if middlewares.CurrentRole(c) == models.RoleViewer {
+		c.JSON(http.StatusForbidden, gin.H{"error": "operators only"})
+		return
+	}
+	n, err := services.PurgeSoftDeleted(h.DB)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	services.WriteAudit(h.DB, middlewares.CurrentUser(c), "purge_deleted", "", "", c.ClientIP())
+	c.JSON(http.StatusOK, gin.H{"purged": n})
 }
 
 func (h *ScanHandler) CancelScan(c *gin.Context) {
@@ -122,6 +172,7 @@ func (h *ScanHandler) GetScanResults(c *gin.Context) {
 	scanType := c.Query("type")
 	status := c.Query("status")
 	search := strings.TrimSpace(c.Query("q"))
+	engID := c.Query("engagement_id")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	if page < 1 {
@@ -137,6 +188,9 @@ func (h *ScanHandler) GetScanResults(c *gin.Context) {
 	}
 	if status != "" {
 		q = q.Where("status = ?", status)
+	}
+	if engID != "" {
+		q = q.Where("engagement_id = ?", engID)
 	}
 	if search != "" {
 		like := "%" + search + "%"

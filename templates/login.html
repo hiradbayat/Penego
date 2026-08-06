@@ -11,15 +11,19 @@
     <div class="text-center mb-4">
         <img src="/assets/logo.png" alt="Penego" width="200">
         <h1 class="h3 mt-3">Sign in</h1>
-        <p class="text-muted">Lab admin password required</p>
+        <p class="text-muted">Username <code>admin</code> · password from <code>ADMIN_PASSWORD</code> in <code>.env</code> (default <code>penego</code>)</p>
     </div>
     {{if .auth_disabled}}
-    <div class="alert alert-info">Authentication is disabled. <a href="/">Continue</a></div>
+    <div class="alert alert-info">Authentication is disabled. <a href="/engagements">Continue</a></div>
     {{else}}
     {{if .error}}<div class="alert alert-danger">{{.error}}</div>{{end}}
     <form method="POST" action="/login" class="card card-body shadow-sm">
+        {{if .use_db_users}}
+        <label class="form-label" for="username">Username</label>
+        <input type="text" class="form-control mb-3" id="username" name="username" value="admin" autocomplete="username">
+        {{end}}
         <label class="form-label" for="password">Password</label>
-        <input type="password" class="form-control mb-3" id="password" name="password" required autofocus>
+        <input type="password" class="form-control mb-3" id="password" name="password" required autofocus autocomplete="current-password">
         <button type="submit" class="btn btn-primary w-100">Login</button>
     </form>
     {{end}}

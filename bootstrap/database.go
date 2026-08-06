@@ -24,6 +24,10 @@ func ConnectDB(dsn string) (*gorm.DB, error) {
 
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
+		&models.Engagement{},
+		&models.Asset{},
+		&models.Finding{},
+		&models.User{},
 		&models.ScanReport{},
 		&models.HostResult{},
 		&models.PortInfo{},
@@ -48,5 +52,15 @@ func CheckDependencies() {
 	}
 	if _, err := exec.LookPath("nmap"); err != nil {
 		log.Println("warning: nmap not found on PATH")
+	}
+	if _, err := exec.LookPath("tracert"); err != nil {
+		if _, err2 := exec.LookPath("traceroute"); err2 != nil {
+			log.Println("warning: traceroute/tracert not found — path tracing may be limited")
+		}
+	}
+	if _, err := services.LoadVulnRules(); err != nil {
+		log.Println("warning: vuln rules:", err)
+	} else {
+		log.Println("dependency: vuln rule pack OK")
 	}
 }
